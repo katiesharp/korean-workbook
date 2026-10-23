@@ -96,6 +96,7 @@ input::placeholder,textarea::placeholder{color:var(--muted);opacity:.7}
 .phase{background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--pc);border-radius:10px;padding:12px 14px}
 .phase.now{box-shadow:0 0 0 2px var(--pc)}
 .phase h3{font-size:1.05rem}
+.stack > h3{font-size:1.1rem;margin-top:6px}
 .phase ul{margin:8px 0 0;padding-left:18px;font-size:.85rem}
 .phase li{margin-bottom:2px}
 .months{display:flex;flex-direction:column;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px}
@@ -264,12 +265,14 @@ function collectPairs(taskIds) {
 // A connected device stores the GitHub token only encrypted with the user's password.
 // The unlocked token and the progress live in sessionStorage, so they vanish with the tab.
 const LS = "korean-year:", SYNC = "korean-year-sync:";
-const DATA_REPO = "katiesharp/korean-workbook-data", DATA_FILE = "progress.json";
+const DATA_FILE = "progress.json";
 const store = kind => { try { return kind === "session" ? sessionStorage : localStorage; } catch (e) { return null; } };
 const sGet = (kind, k) => { try { return store(kind).getItem(SYNC + k); } catch (e) { return null; } };
 const sSet = (kind, k, v) => { try { v == null ? store(kind).removeItem(SYNC + k) : store(kind).setItem(SYNC + k, v); } catch (e) {} };
-const sync = { lock: sGet("local", "lock"), legacy: sGet("local", "token"), token: null, dirty: false, at: sGet("local", "savedAt"), busy: false, error: "" };
+const sync = { lock: sGet("local", "lock"), legacy: sGet("local", "token"), token: null, dirty: false, at: sGet("local", "savedAt"), repo: sGet("local", "repo"), busy: false, error: "" };
 if (sync.lock) sync.token = sGet("session", "token");
+// Accepts "user/repo" or a pasted github.com address.
+const parseRepo = v => { const m = v.trim().replace(/\.git$/, "").match(/(?:github\.com\/)?([\w.-]+)\/([\w.-]+)\/?$/); return m ? m[1] + "/" + m[2] : null; };
 const progressKind = () => sync.lock ? "session" : "local";
 const writeLocal = (id, body) => { try { store(progressKind()).setItem(LS + id, JSON.stringify(body)); } catch (e) {} };
 const timers = {};
@@ -347,14 +350,14 @@ async function unlockToken(lock, password) {
 
 /* ---------- GitHub ---------- */
 function gh(path, opts = {}) {
-  return fetch("https://api.github.com/repos/" + DATA_REPO + path, {
+  return fetch("https://api.github.com/repos/" + sync.repo + path, {
     cache: "no-store", ...opts,
     headers: { Authorization: "Bearer " + sync.token, "X-GitHub-Api-Version": "2022-11-28", ...(opts.headers || {}) },
   });
 }
 function ghError(r) {
   if (r.status === 401) return new Error("GitHub token is invalid or expired");
-  if (r.status === 403 || r.status === 404) return new Error("This token can't access the progress repository");
+  if (r.status === 403 || r.status === 404) return new Error("Can't find that repository, or the token doesn't have access to it");
   return new Error("GitHub error " + r.status);
 }
 const errText = e => e instanceof TypeError ? "Couldn't reach GitHub" : e.message;
@@ -370,6 +373,7 @@ async function pull() {
 }
 async function remoteSha() {
   const r = await gh("/contents/");
+  if (r.status === 404) return undefined; // a repo with no files yet
   if (!r.ok) throw ghError(r);
   return (await r.json()).find(f => f.name === DATA_FILE)?.sha;
 }
@@ -403,15 +407,16 @@ async function saveToGitHub() {
 }
 // Connect this device: check the token, lock it with the password, and move this
 // browser's progress from long-term storage into the tab's session.
-async function setup(token, password) {
+async function setup(token, password, repo) {
   sync.busy = true; sync.error = ""; render();
   try {
-    sync.token = token;
+    sync.token = token; sync.repo = repo;
     const r = await gh("");
     if (!r.ok) throw ghError(r);
     const lock = await lockToken(token, password);
     sSet("session", "token", token);
     sSet("local", "lock", lock); sync.lock = lock;
+    sSet("local", "repo", repo);
     sSet("local", "token", null); sync.legacy = null;
     writeLocal("meta", state.meta);
     Object.entries(state.days).forEach(([k, d]) => writeLocal("d" + k, d));
@@ -427,7 +432,8 @@ async function setup(token, password) {
   if (sync.dirty && !sync.error) return saveToGitHub();
   render();
 }
-async function login(password) {
+async function login(password, repo) {
+  if (repo) { sync.repo = repo; sSet("local", "repo", repo); }
   sync.busy = true; sync.error = ""; render();
   let token;
   try { token = await unlockToken(sync.lock, password); }
@@ -443,7 +449,7 @@ async function logout(forget) {
   if (sync.token && sync.dirty) { await saveToGitHub(); if (sync.dirty) return; }
   clearProgress("session"); sSet("session", "token", null);
   sync.token = null; sync.error = ""; resetState();
-  if (forget) { sSet("local", "lock", null); sSet("local", "savedAt", null); sync.lock = null; sync.at = null; }
+  if (forget) { ["lock", "savedAt", "repo"].forEach(k => sSet("local", k, null)); sync.lock = sync.at = sync.repo = null; }
   go(forget ? "sync" : "day");
 }
 async function reload() {
@@ -579,6 +585,7 @@ function renderGate(g) {
     <h1>Log in</h1>
     <p class="muted" style="margin:0">Enter your password to open your workbook on this device.</p>
     <form class="stack" id="loginForm" style="gap:10px">
+      ${sync.repo ? "" : `<label for="repo" class="eyebrow">Progress repository</label><input type="text" id="repo" placeholder="your-username/korean-workbook-data" autocomplete="off" value="${esc(sync.repo || "")}">`}
       <label for="pw" class="eyebrow">Password</label>
       <input type="password" id="pw" autocomplete="current-password" autofocus>
       ${err}
@@ -590,6 +597,7 @@ function renderGate(g) {
     <h1>Set a password</h1>
     <p class="muted" style="margin:0">This device has your GitHub token saved without a password. Choose one to lock it. You'll enter it each time you open the workbook here.</p>
     <form class="stack" id="lockForm" style="gap:10px">
+      ${sync.repo ? "" : `<label for="repo" class="eyebrow">Progress repository</label><input type="text" id="repo" placeholder="your-username/korean-workbook-data" autocomplete="off" value="${esc(sync.repo || "")}">`}
       <label for="pw" class="eyebrow">New password</label><input type="password" id="pw" autocomplete="new-password">
       <label for="pw2" class="eyebrow">Repeat password</label><input type="password" id="pw2" autocomplete="new-password">
       ${err}
@@ -611,16 +619,28 @@ function renderSync() {
   </div>`;
   return `<div class="stack">
     <div class="sectionhead"><h2>Connect to GitHub</h2></div>
-    <p style="margin:0">Connect a GitHub access token to save your progress and pick it up on other devices. You do this once per device. After that you log in with a password.</p>
+    <p style="margin:0">Save your progress to your own private GitHub repository so you can pick it up on any device. Setup takes about five minutes, once. After that, each device needs only a password.</p>
+    <h3>1. Create a private repository</h3>
+    <ol class="steps">
+      <li>No GitHub account? <a href="https://github.com/signup" target="_blank" rel="noopener">Sign up for free</a> and verify your email.</li>
+      <li>Open <a href="https://github.com/new" target="_blank" rel="noopener">GitHub → New repository</a>. You can also click <b>+</b> at the top right of any GitHub page and choose <b>New repository</b>.</li>
+      <li>For <b>Repository name</b>, type <b>korean-workbook-data</b>.</li>
+      <li>Choose <b>Private</b>, so only you can see your progress.</li>
+      <li>Turn on the option to <b>add a README file</b>, then click <b>Create repository</b>.</li>
+      <li>Copy the page's address from your browser, like <b>github.com/your-username/korean-workbook-data</b>. You'll paste it in step 3.</li>
+    </ol>
+    <h3>2. Create an access token</h3>
+    <p class="muted" style="margin:0">The token lets this page save to that one repository and nothing else.</p>
     <ol class="steps">
       <li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub → New fine-grained token</a>.</li>
       <li>Name it <b>Korean workbook</b> and pick the longest expiration offered.</li>
-      <li>Under <b>Repository access</b>, choose <b>Only select repositories</b> and pick the repository that stores your progress.</li>
+      <li>Under <b>Repository access</b>, choose <b>Only select repositories</b> and pick <b>korean-workbook-data</b>.</li>
       <li>Under <b>Permissions</b>, open the <b>Add permissions</b> dropdown, search for <b>Contents</b> and add it. Then change its access from <b>Read-only</b> to <b>Read and write</b>.</li>
       <li>Click <b>Generate token</b> and copy it. GitHub only shows it once, so also keep a copy in a password manager for your other devices.</li>
-      <li>Paste it below and choose a password for this device.</li>
     </ol>
+    <h3>3. Connect this device</h3>
     <form class="stack" id="connectForm" style="gap:10px;max-width:420px">
+      <label for="repo" class="eyebrow">Progress repository</label><input type="text" id="repo" placeholder="your-username/korean-workbook-data" autocomplete="off" value="${esc(sync.repo || "")}">
       <label for="token" class="eyebrow">GitHub token</label><input type="password" id="token" placeholder="github_pat_…" autocomplete="off">
       <label for="pw" class="eyebrow">Password for this device</label><input type="password" id="pw" autocomplete="new-password">
       <label for="pw2" class="eyebrow">Repeat password</label><input type="password" id="pw2" autocomplete="new-password">
@@ -690,11 +710,13 @@ main.addEventListener("submit", e => {
   if (sync.busy) return;
   const val = id => document.getElementById(id)?.value || "";
   const fail = msg => { sync.error = msg; render(); };
-  if (e.target.id === "loginForm") return val("pw") ? login(val("pw")) : fail("Enter your password");
+  const hasRepo = !!document.getElementById("repo"), repo = hasRepo ? parseRepo(val("repo")) : sync.repo;
+  if (hasRepo && !repo) return fail("Enter the repository as your-username/repository-name");
+  if (e.target.id === "loginForm") return val("pw") ? login(val("pw"), repo) : fail("Enter your password");
   if (e.target.id === "connectForm" && !val("token").trim()) return fail("Paste your GitHub token");
   if (val("pw").length < 8) return fail("Use a password of at least 8 characters");
   if (val("pw") !== val("pw2")) return fail("The passwords don't match");
-  setup(e.target.id === "lockForm" ? sync.legacy : val("token").trim(), val("pw"));
+  setup(e.target.id === "lockForm" ? sync.legacy : val("token").trim(), val("pw"), repo);
 });
 main.addEventListener("change", e => {
   const el = e.target;
