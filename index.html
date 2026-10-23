@@ -628,11 +628,8 @@ function renderSync() {
     <p class="muted" style="margin:0;font-size:.85rem"><b>Forget this device</b> logs out and also removes the locked token, so this browser keeps nothing. Use it when you're leaving a shared computer for good.</p>
   </div>`;
   return `<div class="stack">
-    ${loggedOut() ? `${loginHTML(false)}
-    <div class="sectionhead" style="margin-top:20px"><h2>Set up a new connection</h2></div>
-    <p style="margin:0">First time here, or using a different GitHub account? Follow these steps. Connecting replaces the saved login on this device.</p>` : `
     <div class="sectionhead"><h2>Connect to GitHub</h2></div>
-    <p style="margin:0">Save your progress to your own private GitHub repository so you can pick it up on any device. Setup takes about five minutes, once. After that, each device needs only a password.</p>`}
+    <p style="margin:0">Save your progress to your own private GitHub repository so you can pick it up on any device. Setup takes about five minutes, once. After that, each device needs only a password.${loggedOut() ? " Connecting replaces the saved login on this device." : ""}</p>
     <h3>1. Create a private repository</h3>
     <ol class="steps">
       <li>No GitHub account? <a href="https://github.com/signup" target="_blank" rel="noopener">Sign up for free</a> and verify your email.</li>
