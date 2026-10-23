@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Korean Year Workbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky header with tabs over a single 760px working column; the year view widens into a month-by-day grid. */
+:root{
+  --bg:#eef3f1; --surface:#ffffff; --ink:#16211e; --muted:#5a6b66; --line:#d3dfdb;
+  --accent:#2c7768; --accent-soft:#dbece6; --accent-ink:#ffffff; --warn:#b5443a;
+  --p1:#b97f2f; --p2:#2c7768; --p3:#356ba3; --p4:#7656a0; --p5:#b5443a;
+  --display:"Gowun Batang", "AppleMyungjo", Georgia, serif;
+  --body:"IBM Plex Sans KR", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0e1412; --surface:#17201d; --ink:#e3ebe8; --muted:#94a59f; --line:#2a3733;
+  --accent:#68bea8; --accent-soft:#1d3530; --accent-ink:#0e1412; --warn:#e57a70;
+  --p1:#dba660; --p2:#68bea8; --p3:#78a6dc; --p4:#ad8fd6; --p5:#e57a70; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e1412; --surface:#17201d; --ink:#e3ebe8; --muted:#94a59f; --line:#2a3733;
+  --accent:#68bea8; --accent-soft:#1d3530; --accent-ink:#0e1412; --warn:#e57a70;
+  --p1:#dba660; --p2:#68bea8; --p3:#78a6dc; --p4:#ad8fd6; --p5:#e57a70; color-scheme:dark}
+*{box-sizing:border-box}
+html{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0}
+img{max-width:100%}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--body)}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+.wrap{max-width:780px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:14px 6px}
+.brand{font-family:var(--display);font-size:1.35rem;font-weight:700;letter-spacing:-.01em;display:flex;align-items:baseline;gap:10px}
+.brand small{font-family:var(--body);font-weight:400;font-size:.8rem;color:var(--muted)}
+.status{font:500 .72rem var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+.status.pending{color:var(--p1)}
+nav{display:flex;gap:4px;overflow-x:auto;scrollbar-width:none}
+nav button{border:0;background:none;color:var(--muted);font:500 .9rem var(--body);padding:10px 12px;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap}
+nav button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+nav button:hover{color:var(--ink)}
+main{padding-block:24px 64px}
+fieldset{border:0;margin:0;padding:0;min-width:0}
+button:focus-visible,input:focus-visible,textarea:focus-visible,.cell:focus-visible,.letter:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0}
+.eyebrow{font:500 .72rem var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.muted{color:var(--muted)}
+.stack{display:flex;flex-direction:column;gap:16px}
+
+/* Day */
+.dayhead{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.dayhead h1{font-size:1.9rem;line-height:1.2}
+.dnav{display:flex;gap:6px}
+.btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);font:500 .85rem var(--body);padding:7px 12px;border-radius:8px;cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.chip{display:inline-flex;align-items:center;gap:6px;font:500 .78rem var(--body);padding:3px 10px;border-radius:999px;background:var(--accent-soft);color:var(--ink)}
+.chip i{width:8px;height:8px;border-radius:50%;background:var(--pc,var(--accent))}
+.meta{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-top:8px}
+.progress{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.bar{height:8px;border-radius:99px;background:var(--line);overflow:hidden;margin-top:6px}
+.bar span{display:block;height:100%;background:var(--accent);transition:width .25s}
+.minutes{display:flex;align-items:center;gap:8px;font-size:.85rem;color:var(--muted)}
+.minutes input{width:70px}
+.task{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;padding:16px;border-bottom:1px solid var(--line)}
+.task:last-child{border-bottom:0}
+.tasks{background:var(--surface);border:1px solid var(--line);border-radius:12px}
+.task .check{grid-row:span 3;width:24px;height:24px;margin-top:2px;accent-color:var(--accent);cursor:pointer}
+.task label.t{font-weight:600;cursor:pointer}
+.task.done label.t{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--accent)}
+.task .hint{font-size:.83rem;color:var(--muted)}
+.fields{display:flex;flex-direction:column;gap:6px;margin-top:8px;min-width:0}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+input[type=text],input[type=number],input[type=date],input[type=search],textarea{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+textarea{resize:vertical;line-height:1.6}
+.ko{font-family:var(--display);font-size:1.02rem}
+input::placeholder,textarea::placeholder{color:var(--muted);opacity:.7}
+.notice{background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:20px;text-align:center}
+
+/* Year */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.stat b{display:block;font:600 1.5rem var(--display);font-variant-numeric:tabular-nums}
+.stat span{font-size:.8rem;color:var(--muted)}
+.startrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:.9rem}
+.startrow input{width:auto}
+.phases{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.phase{background:var(--surface);border:1px solid var(--line);border-top:4px solid var(--pc);border-radius:10px;padding:12px 14px}
+.phase.now{box-shadow:0 0 0 2px var(--pc)}
+.phase h3{font-size:1.05rem}
+.phase ul{margin:8px 0 0;padding-left:18px;font-size:.85rem}
+.phase li{margin-bottom:2px}
+.months{display:flex;flex-direction:column;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px}
+.mrow{display:grid;grid-template-columns:92px 1fr 44px;gap:10px;align-items:center}
+.mlabel{font-size:.8rem;line-height:1.25;border-left:3px solid var(--pc);padding-left:8px}
+.mlabel span{display:block;color:var(--muted);font:.7rem var(--mono)}
+.cells{display:grid;grid-template-columns:repeat(31,1fr);gap:3px}
+.cell{aspect-ratio:1;max-width:100%;border-radius:3px;background:var(--line);border:0;padding:0;cursor:pointer}
+.cell.partial{background:color-mix(in srgb,var(--accent) 40%,var(--surface))}
+.cell.full{background:var(--accent)}
+.cell.future{background:transparent;box-shadow:inset 0 0 0 1px var(--line)}
+.cell.today{box-shadow:0 0 0 2px var(--warn)}
+.mpct{font:.75rem var(--mono);color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.78rem;color:var(--muted);align-items:center}
+.legend .cell{width:12px;display:inline-block;vertical-align:middle;margin-right:4px;cursor:default}
+
+/* Hangul */
+.letters{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px}
+.letter{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:10px;padding:8px 4px;cursor:pointer;text-align:center}
+.letter b{display:block;font:400 1.7rem/1.2 var(--display)}
+.letter span{font:.7rem var(--mono);color:var(--muted)}
+.letter[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.letter[aria-pressed="true"] span{color:var(--accent-ink);opacity:.8}
+.sectionhead{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+.sectionhead h2{font-size:1.3rem}
+.count{font:500 .85rem var(--mono);color:var(--muted)}
+
+/* Words & journal */
+.tablewrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px}
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 .7rem var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+tr:last-child td{border-bottom:0}
+td.date{font:.78rem var(--mono);color:var(--muted);white-space:nowrap}
+.entry{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.entry p{white-space:pre-wrap;margin:6px 0 0;font-family:var(--display);font-size:1.02rem;line-height:1.7;overflow-wrap:anywhere}
+.linkbtn{border:0;background:none;color:var(--accent);font:inherit;padding:0;cursor:pointer;text-decoration:underline}
+@media (max-width:520px){.dayhead h1{font-size:1.5rem}.mrow{grid-template-columns:1fr 40px}.mlabel{grid-column:1/-1}.cells{gap:2px}.progress{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){.bar span{transition:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="top">
+      <div class="brand">한국어 <small>Korean Year Workbook</small></div>
+      <div class="status" id="status">Opening…</div>
+    </div>
+    <nav role="tablist" id="tabs">
+      <button role="tab" data-view="day">Day</button>
+      <button role="tab" data-view="year">Year plan</button>
+      <button role="tab" data-view="hangul">Hangul &amp; phrases</button>
+      <button role="tab" data-view="words">Words &amp; journal</button>
+    </nav>
+  </div>
+</header>
+<main class="wrap" id="main"></main>
+
+<script>
+(() => {
+const pad = n => String(n).padStart(2, "0");
+const keyOf = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const parseKey = k => { const [y, m, d] = k.split("-").map(Number); return new Date(y, m - 1, d); };
+const addDays = (k, n) => { const d = parseKey(k); d.setDate(d.getDate() + n); return keyOf(d); };
+const addMonths = (k, n) => {
+  const d = parseKey(k), day = d.getDate();
+  d.setDate(1); d.setMonth(d.getMonth() + n);
+  d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+  return keyOf(d);
+};
+const diffDays = (a, b) => Math.round((parseKey(b) - parseKey(a)) / 864e5);
+const fmtLong = k => parseKey(k).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+const fmtShort = k => parseKey(k).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const TODAY = keyOf(new Date());
+
+const T = {
+  hangul:   { label: "Learn Hangul", hint: "Read and write the letters. Mark each one in the Hangul chart once it sticks.", fields: [{ k: "text", type: "text", ph: "Letters practiced today, e.g. ㄱ ㄴ ㄷ ㅏ ㅓ" }] },
+  phrases:  { label: "Learn essential phrases", hint: "Goal: 30 phrases by the end of month 1, about 2 a day.", fields: [{ k: "pairs", type: "pairs", n: 3, ph: ["안녕하세요", "Hello"] }] },
+  sent3:    { label: "Write 3 sentences", fields: [{ k: "list", type: "list", n: 3, ph: "저는 커피를 좋아해요." }] },
+  words5:   { label: "Learn 5 new words", fields: [{ k: "pairs", type: "pairs", n: 5, ph: ["단어", "meaning"] }] },
+  diary:    { label: "Write a diary entry using those words", fields: [{ k: "text", type: "area", rows: 4, ph: "오늘은…" }] },
+  read:     { label: "Read a short webtoon chapter or article", fields: [{ k: "text", type: "text", ph: "Title and chapter" }] },
+  podcast:  { label: "Listen to a 5-minute podcast", fields: [{ k: "text", type: "text", ph: "Show and episode" }] },
+  repeat5:  { label: "Repeat 5 sentences out loud", fields: [{ k: "list", type: "list", n: 5, ph: "Sentence" }] },
+  voice1:   { label: "Record a 1-minute voice note", hint: "Record on your phone and note the topic here.", fields: [{ k: "text", type: "text", ph: "What you talked about" }] },
+  ttmik:    { label: "Read along with a TTMIK dialogue while listening", fields: [{ k: "text", type: "text", ph: "Level and lesson" }] },
+  mimic:    { label: "Mimic one full conversation", hint: "Role-play both speakers out loud.", fields: [{ k: "text", type: "text", ph: "Which conversation" }] },
+  diaryLong:{ label: "Write a longer diary entry", fields: [{ k: "text", type: "area", rows: 7, ph: "오늘은…" }] },
+  mono:     { label: "Record a 2-minute monologue", hint: "Weekend task.", weekend: true, fields: [{ k: "text", type: "text", ph: "Topic" }] },
+  watch:    { label: "Watch Korean content without subtitles", fields: [{ k: "text", type: "text", ph: "Show or video, episode" }] },
+  diaryNo:  { label: "Write a diary entry without a translator", fields: [{ k: "text", type: "area", rows: 7, ph: "오늘은…" }] },
+  chatbot:  { label: "Practice conversation with an AI chatbot", fields: [{ k: "text", type: "text", ph: "Topic" }] },
+  speak:    { label: "Speak for at least 5 minutes", fields: [{ k: "num", type: "number", ph: "Minutes" }] },
+};
+const PHASES = [
+  { id: 1, name: "Foundations", span: "Month 1", from: 0, to: 1, time: "30–45 min", color: "--p1", tasks: ["hangul", "phrases", "sent3"],
+    plan: ["Weeks 1–2: learn Hangul", "Weeks 3–4: learn 30 essential phrases", "Weeks 3–4: write 3 sentences a day"] },
+  { id: 2, name: "Vocabulary & reading", span: "Months 2–3", from: 1, to: 3, time: "30–60 min", color: "--p2", tasks: ["words5", "diary", "read"] },
+  { id: 3, name: "Listening & speaking aloud", span: "Months 4–6", from: 3, to: 6, time: "45–60 min", color: "--p3", tasks: ["podcast", "repeat5", "voice1"] },
+  { id: 4, name: "Dialogues & role-play", span: "Months 7–9", from: 6, to: 9, time: "60 min", color: "--p4", tasks: ["ttmik", "mimic", "diaryLong", "mono"] },
+  { id: 5, name: "Immersion", span: "Months 10–12", from: 9, to: 12, time: "60–90 min", color: "--p5", tasks: ["watch", "diaryNo", "chatbot", "speak"] },
+];
+const HANGUL = [
+  ["Basic consonants", [["ㄱ","g/k"],["ㄴ","n"],["ㄷ","d/t"],["ㄹ","r/l"],["ㅁ","m"],["ㅂ","b/p"],["ㅅ","s"],["ㅇ","–/ng"],["ㅈ","j"],["ㅊ","ch"],["ㅋ","k"],["ㅌ","t"],["ㅍ","p"],["ㅎ","h"]]],
+  ["Double consonants", [["ㄲ","kk"],["ㄸ","tt"],["ㅃ","pp"],["ㅆ","ss"],["ㅉ","jj"]]],
+  ["Basic vowels", [["ㅏ","a"],["ㅑ","ya"],["ㅓ","eo"],["ㅕ","yeo"],["ㅗ","o"],["ㅛ","yo"],["ㅜ","u"],["ㅠ","yu"],["ㅡ","eu"],["ㅣ","i"]]],
+  ["Compound vowels", [["ㅐ","ae"],["ㅒ","yae"],["ㅔ","e"],["ㅖ","ye"],["ㅘ","wa"],["ㅙ","wae"],["ㅚ","oe"],["ㅝ","wo"],["ㅞ","we"],["ㅟ","wi"],["ㅢ","ui"]]],
+];
+const HANGUL_TOTAL = HANGUL.reduce((n, g) => n + g[1].length, 0);
+const DIARY_TASKS = ["diary", "diaryLong", "diaryNo"];
+
+const state = { loaded: false, meta: { startDate: TODAY, hangul: {} }, days: {}, view: "day", cur: TODAY, q: "" };
+const main = document.getElementById("main");
+
+/* ---------- plan logic ---------- */
+function monthIndex(k) {
+  const s = state.meta.startDate;
+  if (k < s) return -1;
+  let m = 0;
+  while (m < 12 && addMonths(s, m + 1) <= k) m++;
+  return m;
+}
+const phaseFor = m => PHASES.find(p => m >= p.from && m < p.to);
+function dayInfo(k) {
+  const idx = diffDays(state.meta.startDate, k);
+  const m = monthIndex(k);
+  if (m < 0) return { before: true, idx };
+  if (m >= 12) return { after: true, idx };
+  const p = phaseFor(m), dow = parseKey(k).getDay(), weekend = dow === 0 || dow === 6;
+  let tasks;
+  if (p.id === 1) tasks = idx < 14 ? ["hangul"] : ["phrases", "sent3"];
+  else tasks = p.tasks.filter(t => !T[t].weekend || weekend);
+  return { idx, m, p, tasks, weekend, week: Math.floor(idx / 7) + 1, sub: p.id === 1 ? (idx < 14 ? "Weeks 1–2" : "Weeks 3–4") : null };
+}
+function getDay(k, create) {
+  if (!state.days[k] && create) state.days[k] = { date: k, done: {}, f: {}, minutes: null, notes: "" };
+  return state.days[k];
+}
+function dayScore(k) {
+  const info = dayInfo(k);
+  if (!info.tasks) return null;
+  const d = state.days[k], done = d ? info.tasks.filter(t => d.done?.[t]).length : 0;
+  return { done, total: info.tasks.length };
+}
+const totalDays = () => diffDays(state.meta.startDate, addMonths(state.meta.startDate, 12));
+function streak() {
+  let k = TODAY, n = 0;
+  const full = k => { const s = dayScore(k); return s && s.done === s.total; };
+  if (!full(k)) k = addDays(k, -1);
+  while (k >= state.meta.startDate && full(k)) { n++; k = addDays(k, -1); }
+  return n;
+}
+function collectPairs(taskIds) {
+  const out = [];
+  Object.keys(state.days).sort().forEach(k => taskIds.forEach(t => {
+    (state.days[k].f?.[t]?.pairs || []).forEach(p => { if (p && (p[0] || "").trim()) out.push({ date: k, ko: p[0].trim(), en: (p[1] || "").trim(), t }); });
+  }));
+  return out;
+}
+
+/* ---------- saving ---------- */
+let backend = null, pending = 0;
+const timers = {}, chains = {};
+function setStatus() {
+  const el = document.getElementById("status");
+  if (!state.loaded) { el.textContent = "Opening…"; el.className = "status"; return; }
+  el.className = "status" + (pending ? " pending" : "");
+  el.textContent = pending ? "Saving…" : backend.kind === "db" ? "Saved" : "Saved on this device";
+}
+function queueSave(id) {
+  if (!timers[id]) pending++;
+  clearTimeout(timers[id]);
+  setStatus();
+  timers[id] = setTimeout(() => {
+    timers[id] = null;
+    const body = JSON.parse(JSON.stringify(id === "meta" ? state.meta : state.days[id.slice(1)]));
+    chains[id] = (chains[id] || Promise.resolve())
+      .then(() => backend.save(id, body))
+      .catch(e => { console.error(e); document.getElementById("status").textContent = "Not saved: " + (e?.code === "quota_exceeded" ? "storage full" : "try again"); })
+      .finally(() => { pending--; if (pending >= 0) setStatus(); });
+  }, 600);
+}
+
+/* ---------- views ---------- */
+function fieldHTML(t, f, vals) {
+  const v = vals?.[f.k];
+  if (f.type === "text") return `<input type="text" id="f-${t}-${f.k}" data-t="${t}" data-k="${f.k}" value="${esc(v)}" placeholder="${esc(f.ph)}">`;
+  if (f.type === "number") return `<input type="number" min="0" style="max-width:120px" id="f-${t}-${f.k}" data-t="${t}" data-k="${f.k}" value="${v ?? ""}" placeholder="${esc(f.ph)}">`;
+  if (f.type === "area") return `<textarea class="ko" rows="${f.rows}" id="f-${t}-${f.k}" data-t="${t}" data-k="${f.k}" placeholder="${esc(f.ph)}">${esc(v)}</textarea>`;
+  let h = "";
+  for (let i = 0; i < f.n; i++) {
+    if (f.type === "list") h += `<input type="text" class="ko" id="f-${t}-${i}" data-t="${t}" data-k="${f.k}" data-i="${i}" value="${esc(v?.[i])}" placeholder="${i + 1}. ${esc(f.ph)}">`;
+    else h += `<div class="pair"><input type="text" class="ko" id="f-${t}-${i}a" data-t="${t}" data-k="${f.k}" data-i="${i}" data-j="0" value="${esc(v?.[i]?.[0])}" placeholder="${esc(f.ph[0])}"><input type="text" id="f-${t}-${i}b" data-t="${t}" data-k="${f.k}" data-i="${i}" data-j="1" value="${esc(v?.[i]?.[1])}" placeholder="${esc(f.ph[1])}"></div>`;
+  }
+  return h;
+}
+
+function renderDay() {
+  const k = state.cur, info = dayInfo(k), d = state.days[k];
+  const nav = `<div class="dnav"><button class="btn" data-nav="-1" aria-label="Previous day">‹</button><button class="btn" data-nav="today">Today</button><button class="btn" data-nav="1" aria-label="Next day">›</button></div>`;
+  if (!info.tasks) {
+    return `<div class="stack"><div class="dayhead"><div><div class="eyebrow">${k === TODAY ? "Today" : esc(k)}</div><h1>${esc(fmtLong(k))}</h1></div>${nav}</div>
+      <div class="notice">${info.before ? `Your plan starts on <b>${esc(fmtLong(state.meta.startDate))}</b>.` : "This date is past the end of your 12-month plan."}<br><button class="linkbtn" data-view="year">Change the start date</button></div></div>`;
+  }
+  const s = dayScore(k), p = info.p;
+  const tasks = info.tasks.map(t => {
+    const def = T[t], done = !!d?.done?.[t];
+    return `<div class="task${done ? " done" : ""}" data-task="${t}">
+      <input type="checkbox" class="check" id="c-${t}" data-done="${t}" ${done ? "checked" : ""}>
+      <label class="t" for="c-${t}">${esc(def.label)}</label>
+      ${def.hint ? `<div class="hint">${esc(def.hint)}${t === "hangul" ? ` <button class="linkbtn" data-view="hangul">Open chart</button>` : ""}${t === "phrases" ? ` ${collectPairs(["phrases"]).length}/30 so far.` : ""}</div>` : "<div></div>"}
+      <div class="fields">${def.fields.map(f => fieldHTML(t, f, d?.f?.[t])).join("")}</div>
+    </div>`;
+  }).join("");
+  return `<div class="stack">
+    <div class="dayhead"><div><div class="eyebrow">${k === TODAY ? "Today · " : ""}Day ${info.idx + 1} of ${totalDays()} · Week ${info.week}</div><h1>${esc(fmtLong(k))}</h1>
+      <div class="meta"><span class="chip" style="--pc:var(${p.color})"><i></i>${esc(p.span)}${info.sub ? " · " + info.sub : ""} · ${esc(p.name)}</span></div></div>${nav}</div>
+    <div class="progress"><div><div style="display:flex;justify-content:space-between;font-size:.88rem"><b id="pg-text">${s.done} of ${s.total} done</b><span class="muted">Target ${esc(p.time)} a day</span></div><div class="bar"><span id="pg-bar" style="width:${(s.done / s.total) * 100}%"></span></div></div>
+      <label class="minutes" for="minutes">Studied <input type="number" min="0" id="minutes" value="${d?.minutes ?? ""}" placeholder="0"> min</label></div>
+    <div class="tasks">${tasks}</div>
+    <div><label class="eyebrow" for="notes">Notes, questions, things to look up</label><textarea id="notes" rows="3" style="margin-top:6px">${esc(d?.notes)}</textarea></div>
+  </div>`;
+}
+
+function renderYear() {
+  const s = state.meta.startDate, total = totalDays();
+  const curIdx = diffDays(s, TODAY), curM = monthIndex(TODAY);
+  let doneDays = 0, minutes = 0;
+  Object.keys(state.days).forEach(k => { const sc = dayScore(k); if (sc && sc.done === sc.total) doneDays++; minutes += Number(state.days[k].minutes) || 0; });
+  const words = collectPairs(["words5"]).length;
+  const dayLabel = curIdx < 0 ? `Starts in ${-curIdx}d` : curIdx >= total ? "Finished" : `${curIdx + 1}`;
+  const phases = PHASES.map(p => {
+    const from = addMonths(s, p.from), to = addDays(addMonths(s, p.to), -1);
+    const items = p.plan || p.tasks.map(t => T[t].label + (T[t].weekend ? " (weekends)" : ""));
+    return `<div class="phase${curM >= p.from && curM < p.to ? " now" : ""}" style="--pc:var(${p.color})"><div class="eyebrow">${esc(p.span)} · ${esc(p.time)}/day</div><h3>${esc(p.name)}</h3><div class="muted" style="font-size:.8rem">${esc(fmtShort(from))} – ${esc(fmtShort(to))}</div><ul>${items.map(i => `<li>${esc(i)}</li>`).join("")}</ul></div>`;
+  }).join("");
+  let rows = "";
+  for (let m = 0; m < 12; m++) {
+    const from = addMonths(s, m), to = addMonths(s, m + 1), n = diffDays(from, to), p = phaseFor(m);
+    let cells = "", full = 0, past = 0;
+    for (let i = 0; i < n; i++) {
+      const k = addDays(from, i), sc = dayScore(k);
+      let cls = "cell";
+      if (k > TODAY) cls += " future";
+      else { past++; if (sc.done === sc.total) { cls += " full"; full++; } else if (sc.done) cls += " partial"; }
+      if (k === TODAY) cls += " today";
+      cells += `<button class="${cls}" data-go="${k}" title="${esc(fmtShort(k))}: ${sc.done}/${sc.total}" aria-label="${esc(fmtLong(k))}, ${sc.done} of ${sc.total} tasks"></button>`;
+    }
+    rows += `<div class="mrow"><div class="mlabel" style="--pc:var(${p.color})">Month ${m + 1}<span>${esc(fmtShort(from))}</span></div><div class="cells">${cells}</div><div class="mpct">${past ? Math.round(full / past * 100) + "%" : "–"}</div></div>`;
+  }
+  return `<div class="stack">
+    <div class="sectionhead"><h2>Your year</h2><div class="startrow"><label for="start">Plan starts</label><input type="date" id="start" value="${esc(s)}"></div></div>
+    <div class="stats">
+      <div class="stat"><b>${dayLabel}</b><span>${curIdx >= 0 && curIdx < total ? `day of ${total}` : "plan status"}</span></div>
+      <div class="stat"><b>${streak()}</b><span>day streak</span></div>
+      <div class="stat"><b>${doneDays}</b><span>days fully done</span></div>
+      <div class="stat"><b>${words}</b><span>words logged</span></div>
+      <div class="stat"><b>${(minutes / 60).toFixed(minutes ? 1 : 0)}</b><span>hours studied</span></div>
+    </div>
+    <div class="phases">${phases}</div>
+    <div class="sectionhead"><h2>Daily log</h2><div class="legend"><span><i class="cell"></i>missed</span><span><i class="cell partial"></i>some done</span><span><i class="cell full"></i>all done</span><span>Tap a day to open it</span></div></div>
+    <div class="months">${rows}</div>
+  </div>`;
+}
+
+function renderHangul() {
+  const learned = Object.values(state.meta.hangul).filter(Boolean).length;
+  const groups = HANGUL.map(([name, letters]) => `<div class="stack" style="gap:8px"><div class="eyebrow">${esc(name)}</div><div class="letters">${letters.map(([l, r]) =>
+    `<button class="letter" data-letter="${l}" aria-pressed="${!!state.meta.hangul[l]}"><b>${l}</b><span>${esc(r)}</span></button>`).join("")}</div></div>`).join("");
+  const phrases = collectPairs(["phrases"]);
+  const prow = phrases.map((p, i) => `<tr><td class="date">${i + 1}</td><td class="ko">${esc(p.ko)}</td><td>${esc(p.en)}</td><td class="date">${esc(fmtShort(p.date))}</td></tr>`).join("");
+  return `<div class="stack">
+    <div class="sectionhead"><h2>Hangul chart</h2><span class="count">${learned}/${HANGUL_TOTAL} learned</span></div>
+    <p class="muted" style="margin:0">Weeks 1–2. Tap a letter when you can read and write it without looking.</p>
+    ${groups}
+    <div class="sectionhead" style="margin-top:12px"><h2>30 essential phrases</h2><span class="count">${phrases.length}/30</span></div>
+    <div class="bar" style="margin:0"><span style="width:${Math.min(100, phrases.length / 30 * 100)}%"></span></div>
+    ${phrases.length ? `<div class="tablewrap"><table><thead><tr><th>#</th><th>Korean</th><th>Meaning</th><th>Added</th></tr></thead><tbody>${prow}</tbody></table></div>`
+      : `<div class="notice muted">Phrases you add on the Day page during weeks 3–4 collect here.</div>`}
+  </div>`;
+}
+
+function renderWords() {
+  const q = state.q.trim().toLowerCase();
+  const words = collectPairs(["words5"]).filter(w => !q || w.ko.toLowerCase().includes(q) || w.en.toLowerCase().includes(q));
+  const all = collectPairs(["words5"]).length;
+  const wrows = words.map(w => `<tr><td class="ko">${esc(w.ko)}</td><td>${esc(w.en)}</td><td class="date"><button class="linkbtn" data-go="${w.date}">${esc(fmtShort(w.date))}</button></td></tr>`).join("");
+  const entries = [];
+  Object.keys(state.days).sort().reverse().forEach(k => DIARY_TASKS.forEach(t => {
+    const txt = state.days[k].f?.[t]?.text;
+    if (txt && txt.trim()) entries.push(`<div class="entry"><div class="eyebrow"><button class="linkbtn" data-go="${k}">${esc(fmtLong(k))}</button> · ${esc(T[t].label.replace("Write a ", ""))}</div><p>${esc(txt)}</p></div>`);
+  }));
+  return `<div class="stack">
+    <div class="sectionhead"><h2>Word bank</h2><span class="count">${all} words</span></div>
+    <input type="search" id="q" placeholder="Search Korean or English" value="${esc(state.q)}">
+    ${all ? `<div class="tablewrap"><table><thead><tr><th>Korean</th><th>Meaning</th><th>Day</th></tr></thead><tbody id="wbody">${wrows || `<tr><td colspan="3" class="muted">No matches.</td></tr>`}</tbody></table></div>`
+      : `<div class="notice muted">Your 5 words a day (months 2–3) collect here.</div>`}
+    <div class="sectionhead" style="margin-top:12px"><h2>Journal</h2><span class="count">${entries.length} entries</span></div>
+    ${entries.join("") || `<div class="notice muted">Diary entries from months 2–12 collect here, newest first.</div>`}
+  </div>`;
+}
+
+function render() {
+  document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.view === state.view));
+  const html = { day: renderDay, year: renderYear, hangul: renderHangul, words: renderWords }[state.view]();
+  main.innerHTML = `<fieldset id="fs"${state.loaded ? "" : " disabled"}>${html}</fieldset>`;
+  setStatus();
+}
+function go(view, k) {
+  if (k) state.cur = k;
+  state.view = view;
+  try { history.replaceState(null, "", "#" + view); } catch (e) {}
+  render();
+  window.scrollTo(0, 0);
+}
+
+/* ---------- events ---------- */
+document.addEventListener("click", e => {
+  const v = e.target.closest("[data-view]"); if (v) return go(v.dataset.view);
+  const g = e.target.closest("[data-go]"); if (g) return go("day", g.dataset.go);
+  const n = e.target.closest("[data-nav]");
+  if (n) { state.cur = n.dataset.nav === "today" ? TODAY : addDays(state.cur, +n.dataset.nav); return render(); }
+  const l = e.target.closest("[data-letter]");
+  if (l && state.loaded) {
+    const on = !state.meta.hangul[l.dataset.letter];
+    state.meta.hangul[l.dataset.letter] = on;
+    l.setAttribute("aria-pressed", on);
+    main.querySelector(".count").textContent = `${Object.values(state.meta.hangul).filter(Boolean).length}/${HANGUL_TOTAL} learned`;
+    queueSave("meta");
+  }
+});
+main.addEventListener("input", e => {
+  const el = e.target;
+  if (!state.loaded) return;
+  if (el.id === "q") { state.q = el.value; const pos = el.selectionStart; render(); const q = document.getElementById("q"); q.focus(); q.setSelectionRange(pos, pos); return; }
+  if (el.id === "start") return;
+  const k = state.cur, day = getDay(k, true);
+  if (el.id === "minutes") day.minutes = el.value === "" ? null : Number(el.value);
+  else if (el.id === "notes") day.notes = el.value;
+  else if (el.dataset.t) {
+    const f = day.f[el.dataset.t] ??= {}, { k: fk, i, j } = el.dataset;
+    if (i === undefined) f[fk] = el.type === "number" ? (el.value === "" ? null : Number(el.value)) : el.value;
+    else {
+      const arr = f[fk] = (f[fk] || []).map(x => x ?? (j === undefined ? "" : ["", ""]));
+      if (j === undefined) arr[+i] = el.value;
+      else { while (arr.length <= +i) arr.push(["", ""]); arr[+i] = [...(arr[+i] || ["", ""])]; arr[+i][+j] = el.value; }
+    }
+  } else return;
+  queueSave("d" + k);
+});
+main.addEventListener("change", e => {
+  const el = e.target;
+  if (!state.loaded) return;
+  if (el.id === "start" && el.value) { state.meta.startDate = el.value; queueSave("meta"); return render(); }
+  if (el.dataset.done) {
+    const day = getDay(state.cur, true);
+    day.done[el.dataset.done] = el.checked;
+    el.closest(".task").classList.toggle("done", el.checked);
+    const s = dayScore(state.cur);
+    document.getElementById("pg-text").textContent = `${s.done} of ${s.total} done`;
+    document.getElementById("pg-bar").style.width = (s.done / s.total * 100) + "%";
+    queueSave("d" + state.cur);
+  }
+});
+
+/* ---------- boot ---------- */
+async function boot() {
+  try {
+    const c = window.claude;
+    if (c && c.use) {
+      const db = await c.use("db"), user = db ? await c.use("user") : null, uid = user ? await user.id() : null;
+      if (db && uid) {
+        const col = db.collection("data/users/" + uid), snap = await col.get();
+        snap.docs.forEach(doc => {
+          const v = JSON.parse(JSON.stringify(doc.data() || {}));
+          if (doc.id === "meta") state.meta = { startDate: TODAY, hangul: {}, ...v };
+          else if (doc.id[0] === "d") state.days[doc.id.slice(1)] = v;
+        });
+        backend = { kind: "db", save: (id, body) => col.doc(id).set(body) };
+        if (!snap.docs.some(d => d.id === "meta")) { state.loaded = true; queueSave("meta"); }
+      }
+    }
+  } catch (e) { console.error(e); backend = null; }
+  if (!backend) {
+    const P = "korean-year:";
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key.startsWith(P)) continue;
+        const id = key.slice(P.length), v = JSON.parse(localStorage.getItem(key));
+        if (id === "meta") state.meta = { startDate: TODAY, hangul: {}, ...v };
+        else state.days[id.slice(1)] = v;
+      }
+    } catch (e) {}
+    backend = { kind: "local", save: async (id, body) => { try { localStorage.setItem(P + id, JSON.stringify(body)); } catch (e) {} } };
+  }
+  state.loaded = true;
+  render();
+}
+
+const h = location.hash.slice(1);
+if (["day", "year", "hangul", "words"].includes(h)) state.view = h;
+render();
+boot();
+})();
+</script>
+
+</body>
+</html>
