@@ -269,17 +269,31 @@ const DATA_FILE = "progress.json";
 const store = kind => { try { return kind === "session" ? sessionStorage : localStorage; } catch (e) { return null; } };
 const sGet = (kind, k) => { try { return store(kind).getItem(SYNC + k); } catch (e) { return null; } };
 const sSet = (kind, k, v) => { try { v == null ? store(kind).removeItem(SYNC + k) : store(kind).setItem(SYNC + k, v); } catch (e) {} };
-const sync = { lock: sGet("local", "lock"), legacy: sGet("local", "token"), token: null, dirty: false, at: sGet("local", "savedAt"), repo: sGet("local", "repo"), busy: false, error: "" };
-if (sync.lock) sync.token = sGet("session", "token");
+// A browser can hold several people's saved logins: each is {id, lock, repo, savedAt}.
+// Logging in tries the password against each lock; the one it opens is that person's.
+const sync = { locks: [], id: null, legacy: sGet("local", "token"), token: null, dirty: false, at: null, repo: null, busy: false, error: "" };
+try { sync.locks = JSON.parse(sGet("local", "locks")) || []; } catch (e) {}
+const newId = () => toHex(crypto.getRandomValues(new Uint8Array(8)));
+const toHex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, "0")).join("");
+const writeLocks = () => sSet("local", "locks", sync.locks.length ? JSON.stringify(sync.locks) : null);
+const active = () => sync.locks.find(l => l.id === sync.id);
+if (sGet("local", "lock")) { // the single saved login from before
+  sync.locks.push({ id: newId(), lock: sGet("local", "lock"), repo: sGet("local", "repo"), savedAt: sGet("local", "savedAt") });
+  writeLocks();
+  ["lock", "repo", "savedAt"].forEach(k => sSet("local", k, null));
+}
+sync.id = sGet("session", "id");
+if (active()) { sync.token = sGet("session", "token"); sync.repo = active().repo; sync.at = active().savedAt; }
+else sync.id = null;
 // Accepts "user/repo" or a pasted github.com address.
 const parseRepo = v => { const m = v.trim().replace(/\.git$/, "").match(/(?:github\.com\/)?([\w.-]+)\/([\w.-]+)\/?$/); return m ? m[1] + "/" + m[2] : null; };
-const progressKind = () => sync.lock ? "session" : "local";
+const progressKind = () => sync.locks.length ? "session" : "local";
 const writeLocal = (id, body) => { try { store(progressKind()).setItem(LS + id, JSON.stringify(body)); } catch (e) {} };
 const timers = {};
 // A connected device that isn't logged in shows the empty workbook with a Log in button.
-const loggedOut = () => !!sync.lock && !sync.token;
+const loggedOut = () => sync.locks.length > 0 && !sync.token;
 // "lock": a token saved before passwords existed must be locked before anything else.
-const gate = () => sync.legacy && !sync.lock ? "lock" : null;
+const gate = () => sync.legacy && !sync.locks.length ? "lock" : null;
 
 function loadProgress(kind) {
   try {
@@ -419,7 +433,8 @@ async function saveToGitHub() {
       break;
     }
     sync.dirty = false; sSet(progressKind(), "dirty", null);
-    sync.at = new Date().toISOString(); sSet("local", "savedAt", sync.at);
+    sync.at = new Date().toISOString();
+    if (active()) { active().savedAt = sync.at; writeLocks(); }
   } catch (e) { console.error(e); sync.error = "Not saved: " + errText(e); }
   sync.busy = false;
   render();
@@ -428,22 +443,29 @@ async function saveToGitHub() {
 // browser's progress from long-term storage into the tab's session.
 async function setup(token, password, repo) {
   sync.busy = true; sync.error = ""; render();
+  const hadLogins = sync.locks.length > 0;
   try {
     sync.token = token; sync.repo = repo || await discoverRepo();
     if (!sync.repo) throw new Error("Couldn't find your progress repository");
     const r = await gh("");
     if (!r.ok) throw ghError(r);
-    const lock = await lockToken(token, password);
-    sSet("session", "token", token);
-    sSet("local", "lock", lock); sync.lock = lock;
-    sSet("local", "repo", repo);
+    // The password is how a login is found, so two people can't share one on this browser.
+    for (const l of sync.locks) {
+      const other = await unlockToken(l.lock, password).catch(() => null);
+      if (other !== null && other !== token) throw new Error("Another login on this browser already uses that password. Choose a different one.");
+    }
+    const entry = { id: newId(), lock: await lockToken(token, password), repo: sync.repo, savedAt: null };
+    sync.locks = sync.locks.filter(l => l.repo !== sync.repo).concat(entry); // reconnecting replaces your old login
+    writeLocks();
+    sync.id = entry.id; sync.at = null;
+    sSet("session", "id", entry.id); sSet("session", "token", token);
     sSet("local", "token", null); sync.legacy = null;
     writeLocal("meta", state.meta);
     Object.entries(state.days).forEach(([k, d]) => writeLocal("d" + k, d));
     if (sync.dirty) sSet("session", "dirty", "1");
-    clearProgress("local");
+    if (!hadLogins) clearProgress("local");
   } catch (e) {
-    if (!sync.lock) sync.token = null;
+    if (!active()) { sync.token = null; sync.repo = null; }
     sync.busy = false; sync.error = errText(e);
     return render();
   }
@@ -454,22 +476,27 @@ async function setup(token, password, repo) {
 }
 async function login(password) {
   sync.busy = true; sync.error = ""; render();
-  let token;
-  try { token = await unlockToken(sync.lock, password); }
-  catch (e) { sync.busy = false; sync.error = "Wrong password"; return render(); }
-  sync.token = token; sSet("session", "token", token);
-  if (!sync.repo) { sync.repo = await discoverRepo(); if (sync.repo) sSet("local", "repo", sync.repo); }
+  let token = null, found = null;
+  for (const l of sync.locks) {
+    token = await unlockToken(l.lock, password).catch(() => null);
+    if (token !== null) { found = l; break; }
+  }
+  if (!found) { sync.busy = false; sync.error = "Wrong password"; return render(); }
+  sync.id = found.id; sync.token = token; sync.repo = found.repo; sync.at = found.savedAt;
+  sSet("session", "id", found.id); sSet("session", "token", token);
+  if (!sync.repo) { sync.repo = found.repo = await discoverRepo(); writeLocks(); }
   clearProgress("session"); resetState();
   try { mergeIn(await pull()); } catch (e) { sync.error = errText(e); }
   sync.busy = false;
   go("day");
 }
 // Log out saves first; if that fails, stay logged in so nothing is lost.
+// `forget` also removes this person's saved login, leaving everyone else's.
 async function logout(forget) {
   if (sync.token && sync.dirty) { await saveToGitHub(); if (sync.dirty) return; }
-  clearProgress("session"); sSet("session", "token", null);
-  sync.token = null; sync.error = ""; resetState();
-  if (forget) { ["lock", "savedAt", "repo"].forEach(k => sSet("local", k, null)); sync.lock = sync.at = sync.repo = null; }
+  clearProgress("session"); sSet("session", "token", null); sSet("session", "id", null);
+  if (forget) { sync.locks = sync.locks.filter(l => l.id !== sync.id); writeLocks(); }
+  sync.token = sync.id = sync.repo = sync.at = null; sync.error = ""; resetState();
   go(forget ? "sync" : "day");
 }
 async function reload() {
@@ -612,7 +639,7 @@ function loginHTML(page) {
       ${errFor("loginForm")}
       <button class="btn primary" type="submit"${sync.busy ? " disabled" : ""}>${sync.busy ? "Unlocking…" : "Log in"}</button>
     </form>
-    <p class="muted" style="margin:0;font-size:.85rem">Forgot your password, or done with this device? <button class="linkbtn" id="forgetBtn">Forget this device</button>. That removes the locked token from this browser, and you'll paste your token again to reconnect.</p>
+    <p class="muted" style="margin:0;font-size:.85rem">Forgot your password, or first time on this browser? <button class="linkbtn" data-view="sync">Connect from the Sync tab</button> with your GitHub token. Reconnecting replaces your old login here.</p>
   </div>`;
 }
 
@@ -639,12 +666,12 @@ function renderSync() {
       ${sync.at ? `Last saved ${esc(new Date(sync.at).toLocaleString())}.` : "Nothing saved from this device yet."}</p>
     ${err}
     <p class="muted" style="margin:0">Press <b>Save progress</b> when you finish studying. <b>Log out</b> saves your work, then clears it from this browser. Closing the tab also clears it, so save before you close.</p>
-    <div class="row"><button class="btn primary" id="syncSave">Save progress</button><button class="btn" id="syncPull">Load latest from GitHub</button><button class="btn" id="syncOff">Log out</button><button class="btn" id="forgetBtn">Forget this device</button></div>
-    <p class="muted" style="margin:0;font-size:.85rem"><b>Forget this device</b> logs out and also removes the locked token, so this browser keeps nothing. Use it when you're leaving a shared computer for good.</p>
+    <div class="row"><button class="btn primary" id="syncSave">Save progress</button><button class="btn" id="syncPull">Load latest from GitHub</button><button class="btn" id="syncOff">Log out</button><button class="btn" id="forgetBtn">Remove my login from this browser</button></div>
+    <p class="muted" style="margin:0;font-size:.85rem"><b>Remove my login</b> logs you out and deletes your locked token from this browser. Other people's logins here stay. Use it when you're done with a shared computer for good.</p>
   </div>`;
   return `<div class="stack">
     <div class="sectionhead"><h2>Connect to GitHub</h2></div>
-    <p style="margin:0">Save your progress to your own private GitHub repository so you can pick it up on any device. Setup takes about five minutes, once. After that, each device needs only a password.${loggedOut() ? " Connecting replaces the saved login on this device." : ""}</p>
+    <p style="margin:0">Save your progress to your own private GitHub repository so you can pick it up on any device. Setup takes about five minutes, once. After that, each device needs only a password.${loggedOut() ? " Other people's logins on this browser stay as they are." : ""}</p>
     <h3>1. Create a private repository</h3>
     <ol class="steps">
       <li>No GitHub account? <a href="https://github.com/signup" target="_blank" rel="noopener">Sign up for free</a> and verify your email.</li>
