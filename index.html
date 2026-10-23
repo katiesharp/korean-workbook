@@ -56,6 +56,12 @@ h1,h2,h3{font-family:var(--display);text-wrap:balance;margin:0}
 .dnav{display:flex;gap:6px}
 .btn{border:1px solid var(--line);background:var(--surface);color:var(--ink);font:500 .85rem var(--body);padding:7px 12px;border-radius:8px;cursor:pointer}
 .btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn:disabled{opacity:.6;cursor:default}
+.topright{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+.steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.err{color:var(--warn);font-size:.88rem;margin:0}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .chip{display:inline-flex;align-items:center;gap:6px;font:500 .78rem var(--body);padding:3px 10px;border-radius:999px;background:var(--accent-soft);color:var(--ink)}
 .chip i{width:8px;height:8px;border-radius:50%;background:var(--pc,var(--accent))}
 .meta{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin-top:8px}
@@ -136,13 +142,14 @@ td.date{font:.78rem var(--mono);color:var(--muted);white-space:nowrap}
   <div class="wrap">
     <div class="top">
       <div class="brand">한국어 <small>Korean Year Workbook</small></div>
-      <div class="status" id="status">Opening…</div>
+      <div class="topright"><div class="status" id="status">Opening…</div><button class="btn primary" id="saveBtn">Save progress</button></div>
     </div>
     <nav role="tablist" id="tabs">
       <button role="tab" data-view="day">Day</button>
       <button role="tab" data-view="year">Year plan</button>
       <button role="tab" data-view="hangul">Hangul &amp; phrases</button>
       <button role="tab" data-view="words">Words &amp; journal</button>
+      <button role="tab" data-view="sync">Sync</button>
     </nav>
   </div>
 </header>
@@ -252,27 +259,115 @@ function collectPairs(taskIds) {
 }
 
 /* ---------- saving ---------- */
-let backend = null, pending = 0;
-const timers = {}, chains = {};
+// Every edit is kept in this browser right away. "Save progress" merges it into
+// progress.json in a private GitHub repo; each day keeps its newest copy (by `u`).
+const LS = "korean-year:", SYNC = "korean-year-sync:";
+const DATA_REPO = "katiesharp/korean-workbook-data", DATA_FILE = "progress.json";
+const lsGet = k => { try { return localStorage.getItem(SYNC + k); } catch (e) { return null; } };
+const lsSet = (k, v) => { try { v == null ? localStorage.removeItem(SYNC + k) : localStorage.setItem(SYNC + k, v); } catch (e) {} };
+const writeLocal = (id, body) => { try { localStorage.setItem(LS + id, JSON.stringify(body)); } catch (e) {} };
+const sync = { token: lsGet("token"), dirty: lsGet("dirty") === "1", at: lsGet("savedAt"), busy: false, error: "" };
+const timers = {};
+
 function setStatus() {
-  const el = document.getElementById("status");
-  if (!state.loaded) { el.textContent = "Opening…"; el.className = "status"; return; }
-  el.className = "status" + (pending ? " pending" : "");
-  el.textContent = pending ? "Saving…" : backend.kind === "db" ? "Saved" : "Saved on this device";
+  const el = document.getElementById("status"), btn = document.getElementById("saveBtn");
+  btn.disabled = !state.loaded || sync.busy;
+  btn.textContent = sync.busy ? "Saving…" : "Save progress";
+  el.className = "status";
+  if (!state.loaded) { el.textContent = sync.token ? "Loading from GitHub…" : "Opening…"; return; }
+  if (sync.error) { el.className = "status pending"; el.textContent = sync.error; return; }
+  if (!sync.token) { el.textContent = "Only on this device"; return; }
+  if (sync.dirty) { el.className = "status pending"; el.textContent = "Unsaved changes"; return; }
+  el.textContent = sync.at ? "Saved " + new Date(sync.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Up to date";
 }
 function queueSave(id) {
-  if (!timers[id]) pending++;
+  const doc = id === "meta" ? state.meta : state.days[id.slice(1)];
+  doc.u = Date.now();
+  if (!sync.dirty) { sync.dirty = true; lsSet("dirty", "1"); setStatus(); }
   clearTimeout(timers[id]);
-  setStatus();
-  timers[id] = setTimeout(() => {
-    timers[id] = null;
-    const body = JSON.parse(JSON.stringify(id === "meta" ? state.meta : state.days[id.slice(1)]));
-    chains[id] = (chains[id] || Promise.resolve())
-      .then(() => backend.save(id, body))
-      .catch(e => { console.error(e); document.getElementById("status").textContent = "Not saved: " + (e?.code === "quota_exceeded" ? "storage full" : "try again"); })
-      .finally(() => { pending--; if (pending >= 0) setStatus(); });
-  }, 600);
+  timers[id] = setTimeout(() => writeLocal(id, doc), 400);
 }
+function mergeIn(remote) {
+  if (remote.meta && (remote.meta.u || 0) > (state.meta.u || 0)) { state.meta = { startDate: TODAY, hangul: {}, ...remote.meta }; writeLocal("meta", state.meta); }
+  for (const [k, d] of Object.entries(remote.days || {})) {
+    const l = state.days[k];
+    if (d && (!l || (d.u || 0) > (l.u || 0))) { state.days[k] = d; writeLocal("d" + k, d); }
+  }
+}
+
+function gh(path, opts = {}) {
+  return fetch("https://api.github.com/repos/" + DATA_REPO + path, {
+    cache: "no-store", ...opts,
+    headers: { Authorization: "Bearer " + sync.token, "X-GitHub-Api-Version": "2022-11-28", ...(opts.headers || {}) },
+  });
+}
+function ghError(r) {
+  if (r.status === 401) return new Error("GitHub token is invalid or expired");
+  if (r.status === 403 || r.status === 404) return new Error("Token can't access " + DATA_REPO);
+  return new Error("GitHub error " + r.status);
+}
+const errText = e => e instanceof TypeError ? "Couldn't reach GitHub" : e.message;
+async function pull() {
+  const r = await gh("/contents/" + DATA_FILE, { headers: { Accept: "application/vnd.github.raw+json" } });
+  if (r.status === 404) {
+    const repo = await gh("");
+    if (!repo.ok) throw ghError(repo);
+    return { meta: null, days: {} };
+  }
+  if (!r.ok) throw ghError(r);
+  return r.json();
+}
+async function remoteSha() {
+  const r = await gh("/contents/");
+  if (!r.ok) throw ghError(r);
+  return (await r.json()).find(f => f.name === DATA_FILE)?.sha;
+}
+function b64(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+async function saveToGitHub() {
+  if (!sync.token) return go("sync");
+  sync.busy = true; sync.error = ""; setStatus();
+  try {
+    for (let attempt = 0; ; attempt++) {
+      mergeIn(await pull());
+      const sha = await remoteSha();
+      const data = { savedAt: new Date().toISOString(), meta: state.meta, days: state.days };
+      const r = await gh("/contents/" + DATA_FILE, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "Save progress " + TODAY, content: b64(JSON.stringify(data, null, 1)), ...(sha ? { sha } : {}) }),
+      });
+      if ((r.status === 409 || r.status === 422) && attempt === 0) continue;
+      if (!r.ok) throw ghError(r);
+      break;
+    }
+    sync.dirty = false; lsSet("dirty", null);
+    sync.at = new Date().toISOString(); lsSet("savedAt", sync.at);
+  } catch (e) { console.error(e); sync.error = "Not saved: " + errText(e); }
+  sync.busy = false;
+  render();
+}
+async function connect(token) {
+  sync.token = token; sync.busy = true; sync.error = ""; render();
+  try {
+    const r = await gh("");
+    if (!r.ok) throw ghError(r);
+    lsSet("token", token);
+    mergeIn(await pull());
+  } catch (e) { sync.token = null; sync.error = errText(e); }
+  sync.busy = false;
+  render();
+}
+async function reload() {
+  sync.busy = true; sync.error = ""; setStatus();
+  try { mergeIn(await pull()); } catch (e) { sync.error = errText(e); }
+  sync.busy = false;
+  render();
+}
+window.addEventListener("beforeunload", e => { if (sync.token && sync.dirty) { e.preventDefault(); e.returnValue = ""; } });
 
 /* ---------- views ---------- */
 function fieldHTML(t, f, vals) {
@@ -393,9 +488,34 @@ function renderWords() {
   </div>`;
 }
 
+function renderSync() {
+  if (sync.token) return `<div class="stack">
+    <div class="sectionhead"><h2>Sync with GitHub</h2></div>
+    <p style="margin:0">This device saves to <b>${DATA_REPO}</b> (private), in <code>${DATA_FILE}</code>.
+      ${sync.at ? `Last saved ${esc(new Date(sync.at).toLocaleString())}.` : "Nothing saved from this device yet."}</p>
+    ${sync.error ? `<p class="err">${esc(sync.error)}</p>` : ""}
+    <p class="muted" style="margin:0">Press <b>Save progress</b> when you finish studying. Your work is kept in this browser until then. Opening the page on another device loads the newest saved copy of each day.</p>
+    <div class="row"><button class="btn primary" id="syncSave">Save progress</button><button class="btn" id="syncPull">Load latest from GitHub</button><button class="btn" id="syncOff">Disconnect this device</button></div>
+  </div>`;
+  return `<div class="stack">
+    <div class="sectionhead"><h2>Connect to GitHub</h2></div>
+    <p style="margin:0">Your progress is only on this device right now. To save it to your private repo <b>${DATA_REPO}</b> and use it on other devices, create a GitHub access token. You only do this once per device.</p>
+    <ol class="steps">
+      <li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub → New fine-grained token</a>.</li>
+      <li>Name it <b>Korean workbook</b> and pick the longest expiration offered.</li>
+      <li>Under <b>Repository access</b>, choose <b>Only select repositories</b> → <b>korean-workbook-data</b>.</li>
+      <li>Under <b>Permissions → Repository permissions</b>, set <b>Contents</b> to <b>Read and write</b>.</li>
+      <li>Click <b>Generate token</b>, copy it, and paste it below.</li>
+    </ol>
+    ${sync.error ? `<p class="err">${esc(sync.error)}</p>` : ""}
+    <form class="row" id="connectForm"><input type="password" id="token" placeholder="github_pat_…" autocomplete="off" style="flex:1;min-width:200px"><button class="btn primary" type="submit"${sync.busy ? " disabled" : ""}>${sync.busy ? "Connecting…" : "Connect"}</button></form>
+    <p class="muted" style="margin:0;font-size:.85rem">The token stays in this browser only. Don't connect on a shared computer.</p>
+  </div>`;
+}
+
 function render() {
   document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.view === state.view));
-  const html = { day: renderDay, year: renderYear, hangul: renderHangul, words: renderWords }[state.view]();
+  const html = { day: renderDay, year: renderYear, hangul: renderHangul, words: renderWords, sync: renderSync }[state.view]();
   main.innerHTML = `<fieldset id="fs"${state.loaded ? "" : " disabled"}>${html}</fieldset>`;
   setStatus();
 }
@@ -413,6 +533,9 @@ document.addEventListener("click", e => {
   const g = e.target.closest("[data-go]"); if (g) return go("day", g.dataset.go);
   const n = e.target.closest("[data-nav]");
   if (n) { state.cur = n.dataset.nav === "today" ? TODAY : addDays(state.cur, +n.dataset.nav); return render(); }
+  if (e.target.closest("#saveBtn, #syncSave")) return saveToGitHub();
+  if (e.target.closest("#syncPull")) return reload();
+  if (e.target.closest("#syncOff")) { sync.token = null; sync.error = ""; lsSet("token", null); return render(); }
   const l = e.target.closest("[data-letter]");
   if (l && state.loaded) {
     const on = !state.meta.hangul[l.dataset.letter];
@@ -426,7 +549,7 @@ main.addEventListener("input", e => {
   const el = e.target;
   if (!state.loaded) return;
   if (el.id === "q") { state.q = el.value; const pos = el.selectionStart; render(); const q = document.getElementById("q"); q.focus(); q.setSelectionRange(pos, pos); return; }
-  if (el.id === "start") return;
+  if (el.id === "start" || el.id === "token") return;
   const k = state.cur, day = getDay(k, true);
   if (el.id === "minutes") day.minutes = el.value === "" ? null : Number(el.value);
   else if (el.id === "notes") day.notes = el.value;
@@ -440,6 +563,11 @@ main.addEventListener("input", e => {
     }
   } else return;
   queueSave("d" + k);
+});
+main.addEventListener("submit", e => {
+  e.preventDefault();
+  const t = document.getElementById("token").value.trim();
+  if (t) connect(t);
 });
 main.addEventListener("change", e => {
   const el = e.target;
@@ -459,40 +587,21 @@ main.addEventListener("change", e => {
 /* ---------- boot ---------- */
 async function boot() {
   try {
-    const c = window.claude;
-    if (c && c.use) {
-      const db = await c.use("db"), user = db ? await c.use("user") : null, uid = user ? await user.id() : null;
-      if (db && uid) {
-        const col = db.collection("data/users/" + uid), snap = await col.get();
-        snap.docs.forEach(doc => {
-          const v = JSON.parse(JSON.stringify(doc.data() || {}));
-          if (doc.id === "meta") state.meta = { startDate: TODAY, hangul: {}, ...v };
-          else if (doc.id[0] === "d") state.days[doc.id.slice(1)] = v;
-        });
-        backend = { kind: "db", save: (id, body) => col.doc(id).set(body) };
-        if (!snap.docs.some(d => d.id === "meta")) { state.loaded = true; queueSave("meta"); }
-      }
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key.startsWith(LS)) continue;
+      const id = key.slice(LS.length), v = JSON.parse(localStorage.getItem(key));
+      if (id === "meta") state.meta = { startDate: TODAY, hangul: {}, ...v };
+      else if (id[0] === "d") state.days[id.slice(1)] = v;
     }
-  } catch (e) { console.error(e); backend = null; }
-  if (!backend) {
-    const P = "korean-year:";
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i);
-        if (!key.startsWith(P)) continue;
-        const id = key.slice(P.length), v = JSON.parse(localStorage.getItem(key));
-        if (id === "meta") state.meta = { startDate: TODAY, hangul: {}, ...v };
-        else state.days[id.slice(1)] = v;
-      }
-    } catch (e) {}
-    backend = { kind: "local", save: async (id, body) => { try { localStorage.setItem(P + id, JSON.stringify(body)); } catch (e) {} } };
-  }
+  } catch (e) {}
+  if (sync.token) { try { mergeIn(await pull()); } catch (e) { sync.error = errText(e); } }
   state.loaded = true;
   render();
 }
 
 const h = location.hash.slice(1);
-if (["day", "year", "hangul", "words"].includes(h)) state.view = h;
+if (["day", "year", "hangul", "words", "sync"].includes(h)) state.view = h;
 render();
 boot();
 })();
