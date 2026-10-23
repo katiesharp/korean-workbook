@@ -388,7 +388,7 @@ function b64(str) {
 }
 async function saveToGitHub() {
   if (!sync.token) return go("sync");
-  sync.busy = true; sync.error = ""; setStatus();
+  sync.busy = true; sync.error = ""; sync.errorAt = null; setStatus();
   try {
     for (let attempt = 0; ; attempt++) {
       mergeIn(await pull());
@@ -456,7 +456,7 @@ async function logout(forget) {
   go(forget ? "sync" : "day");
 }
 async function reload() {
-  sync.busy = true; sync.error = ""; setStatus();
+  sync.busy = true; sync.error = ""; sync.errorAt = null; setStatus();
   try { mergeIn(await pull()); } catch (e) { sync.error = errText(e); }
   sync.busy = false;
   render();
@@ -582,20 +582,27 @@ function renderWords() {
   </div>`;
 }
 
-function renderGate(g) {
-  const err = sync.error ? `<p class="err">${esc(sync.error)}</p>` : "";
-  if (g === "login") return `<div class="stack" style="max-width:420px;margin:24px auto 0">
-    <h1>Log in</h1>
+// Errors show only in the form that caused them, since the Sync tab can hold two forms.
+const errFor = form => sync.error && (!sync.errorAt || sync.errorAt === form) ? `<p class="err">${esc(sync.error)}</p>` : "";
+
+function loginHTML(page) {
+  return `<div class="stack" style="max-width:420px;${page ? "margin:24px auto 0" : ""}">
+    ${page ? "<h1>Log in</h1>" : `<div class="sectionhead"><h2>Log in</h2></div>`}
     <p class="muted" style="margin:0">Enter your password to open your workbook on this device.</p>
     <form class="stack" id="loginForm" style="gap:10px">
-      ${sync.repo ? "" : `<label for="repo" class="eyebrow">Progress repository</label><input type="text" id="repo" placeholder="your-username/korean-workbook-data" autocomplete="off" value="${esc(sync.repo || "")}">`}
-      <label for="pw" class="eyebrow">Password</label>
-      <input type="password" id="pw" autocomplete="current-password" autofocus>
-      ${err}
+      ${sync.repo ? "" : `<label for="loginRepo" class="eyebrow">Progress repository</label><input type="text" id="loginRepo" placeholder="your-username/korean-workbook-data" autocomplete="off">`}
+      <label for="loginPw" class="eyebrow">Password</label>
+      <input type="password" id="loginPw" autocomplete="current-password"${page ? " autofocus" : ""}>
+      ${errFor("loginForm")}
       <button class="btn primary" type="submit"${sync.busy ? " disabled" : ""}>${sync.busy ? "Unlocking…" : "Log in"}</button>
     </form>
     <p class="muted" style="margin:0;font-size:.85rem">Forgot your password, or done with this device? <button class="linkbtn" id="forgetBtn">Forget this device</button>. That removes the locked token from this browser, and you'll paste your token again to reconnect.</p>
   </div>`;
+}
+
+function renderGate(g) {
+  const err = errFor("lockForm");
+  if (g === "login") return loginHTML(true);
   return `<div class="stack" style="max-width:420px;margin:24px auto 0">
     <h1>Set a password</h1>
     <p class="muted" style="margin:0">This device has your GitHub token saved without a password. Choose one to lock it. You'll enter it each time you open the workbook here.</p>
@@ -610,8 +617,7 @@ function renderGate(g) {
 }
 
 function renderSync() {
-  if (loggedOut()) return renderGate("login");
-  const err = sync.error ? `<p class="err">${esc(sync.error)}</p>` : "";
+  const err = errFor("syncPage");
   if (sync.token) return `<div class="stack">
     <div class="sectionhead"><h2>Sync with GitHub</h2></div>
     <p style="margin:0">This device is connected to GitHub.
@@ -622,8 +628,11 @@ function renderSync() {
     <p class="muted" style="margin:0;font-size:.85rem"><b>Forget this device</b> logs out and also removes the locked token, so this browser keeps nothing. Use it when you're leaving a shared computer for good.</p>
   </div>`;
   return `<div class="stack">
+    ${loggedOut() ? `${loginHTML(false)}
+    <div class="sectionhead" style="margin-top:20px"><h2>Set up a new connection</h2></div>
+    <p style="margin:0">First time here, or using a different GitHub account? Follow these steps. Connecting replaces the saved login on this device.</p>` : `
     <div class="sectionhead"><h2>Connect to GitHub</h2></div>
-    <p style="margin:0">Save your progress to your own private GitHub repository so you can pick it up on any device. Setup takes about five minutes, once. After that, each device needs only a password.</p>
+    <p style="margin:0">Save your progress to your own private GitHub repository so you can pick it up on any device. Setup takes about five minutes, once. After that, each device needs only a password.</p>`}
     <h3>1. Create a private repository</h3>
     <ol class="steps">
       <li>No GitHub account? <a href="https://github.com/signup" target="_blank" rel="noopener">Sign up for free</a> and verify your email.</li>
@@ -644,11 +653,11 @@ function renderSync() {
     </ol>
     <h3>3. Connect this device</h3>
     <form class="stack" id="connectForm" style="gap:10px;max-width:420px">
-      <label for="repo" class="eyebrow">Progress repository</label><input type="text" id="repo" placeholder="your-username/korean-workbook-data" autocomplete="off" value="${esc(sync.repo || "")}">
+      <label for="repo" class="eyebrow">Progress repository</label><input type="text" id="repo" placeholder="your-username/korean-workbook-data" autocomplete="off" value="${loggedOut() ? "" : esc(sync.repo || "")}">
       <label for="token" class="eyebrow">GitHub token</label><input type="password" id="token" placeholder="github_pat_…" autocomplete="off">
       <label for="pw" class="eyebrow">Password for this device</label><input type="password" id="pw" autocomplete="new-password">
       <label for="pw2" class="eyebrow">Repeat password</label><input type="password" id="pw2" autocomplete="new-password">
-      ${err}
+      ${errFor("connectForm")}
       <button class="btn primary" type="submit"${sync.busy ? " disabled" : ""}>${sync.busy ? "Connecting…" : "Connect"}</button>
     </form>
     <p class="muted" style="margin:0;font-size:.85rem">The token is locked with your password before it's stored, so nobody else using this browser can use it. Your progress is cleared from this browser when you log out or close the tab.</p>
@@ -713,15 +722,17 @@ main.addEventListener("input", e => {
 main.addEventListener("submit", e => {
   e.preventDefault();
   if (sync.busy) return;
-  const val = id => document.getElementById(id)?.value || "";
+  const form = e.target, val = id => form.elements[id]?.value || "";
   const fail = msg => { sync.error = msg; render(); };
-  const hasRepo = !!document.getElementById("repo"), repo = hasRepo ? parseRepo(val("repo")) : sync.repo;
+  sync.errorAt = form.id;
+  const repoId = form.id === "loginForm" ? "loginRepo" : "repo";
+  const hasRepo = !!form.elements[repoId], repo = hasRepo ? parseRepo(val(repoId)) : sync.repo;
   if (hasRepo && !repo) return fail("Enter the repository as your-username/repository-name");
-  if (e.target.id === "loginForm") return val("pw") ? login(val("pw"), repo) : fail("Enter your password");
-  if (e.target.id === "connectForm" && !val("token").trim()) return fail("Paste your GitHub token");
+  if (form.id === "loginForm") return val("loginPw") ? login(val("loginPw"), repo) : fail("Enter your password");
+  if (form.id === "connectForm" && !val("token").trim()) return fail("Paste your GitHub token");
   if (val("pw").length < 8) return fail("Use a password of at least 8 characters");
   if (val("pw") !== val("pw2")) return fail("The passwords don't match");
-  setup(e.target.id === "lockForm" ? sync.legacy : val("token").trim(), val("pw"), repo);
+  setup(form.id === "lockForm" ? sync.legacy : val("token").trim(), val("pw"), repo);
 });
 main.addEventListener("change", e => {
   const el = e.target;
