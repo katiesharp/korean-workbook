@@ -276,7 +276,7 @@ function setStatus() {
   el.className = "status";
   if (!state.loaded) { el.textContent = sync.token ? "Loading from GitHub…" : "Opening…"; return; }
   if (sync.error) { el.className = "status pending"; el.textContent = sync.error; return; }
-  if (!sync.token) { el.textContent = "Only on this device"; return; }
+  if (!sync.token) { el.textContent = ""; return; }
   if (sync.dirty) { el.className = "status pending"; el.textContent = "Unsaved changes"; return; }
   el.textContent = sync.at ? "Saved " + new Date(sync.at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "Up to date";
 }
@@ -303,7 +303,7 @@ function gh(path, opts = {}) {
 }
 function ghError(r) {
   if (r.status === 401) return new Error("GitHub token is invalid or expired");
-  if (r.status === 403 || r.status === 404) return new Error("Token can't access " + DATA_REPO);
+  if (r.status === 403 || r.status === 404) return new Error("This token can't access the progress repository");
   return new Error("GitHub error " + r.status);
 }
 const errText = e => e instanceof TypeError ? "Couldn't reach GitHub" : e.message;
@@ -491,7 +491,7 @@ function renderWords() {
 function renderSync() {
   if (sync.token) return `<div class="stack">
     <div class="sectionhead"><h2>Sync with GitHub</h2></div>
-    <p style="margin:0">This device saves to <b>${DATA_REPO}</b> (private), in <code>${DATA_FILE}</code>.
+    <p style="margin:0">This device is connected to GitHub.
       ${sync.at ? `Last saved ${esc(new Date(sync.at).toLocaleString())}.` : "Nothing saved from this device yet."}</p>
     ${sync.error ? `<p class="err">${esc(sync.error)}</p>` : ""}
     <p class="muted" style="margin:0">Press <b>Save progress</b> when you finish studying. Your work is kept in this browser until then. Opening the page on another device loads the newest saved copy of each day.</p>
@@ -499,11 +499,11 @@ function renderSync() {
   </div>`;
   return `<div class="stack">
     <div class="sectionhead"><h2>Connect to GitHub</h2></div>
-    <p style="margin:0">Your progress is only on this device right now. To save it to your private repo <b>${DATA_REPO}</b> and use it on other devices, create a GitHub access token. You only do this once per device.</p>
+    <p style="margin:0">Connect a GitHub access token to save your progress and pick it up on other devices. You only do this once per device.</p>
     <ol class="steps">
       <li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub → New fine-grained token</a>.</li>
       <li>Name it <b>Korean workbook</b> and pick the longest expiration offered.</li>
-      <li>Under <b>Repository access</b>, choose <b>Only select repositories</b> → <b>korean-workbook-data</b>.</li>
+      <li>Under <b>Repository access</b>, choose <b>Only select repositories</b> and pick the repository that stores your progress.</li>
       <li>Under <b>Permissions → Repository permissions</b>, set <b>Contents</b> to <b>Read and write</b>.</li>
       <li>Click <b>Generate token</b>, copy it, and paste it below.</li>
     </ol>
