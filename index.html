@@ -143,7 +143,7 @@ td.date{font:.78rem var(--mono);color:var(--muted);white-space:nowrap}
   <div class="wrap">
     <div class="top">
       <div class="brand">한국어 <small>Korean Year Workbook</small></div>
-      <div class="topright"><div class="status" id="status">Opening…</div><button class="btn primary" id="saveBtn">Save progress</button><button class="btn" id="logoutBtn" hidden>Log out</button></div>
+      <div class="topright"><div class="status" id="status">Opening…</div><button class="btn primary" id="saveBtn">Save progress</button><button class="btn" id="logoutBtn" hidden>Log out</button><button class="btn primary" id="loginBtn" hidden>Log in</button></div>
     </div>
     <nav role="tablist" id="tabs">
       <button role="tab" data-view="day">Day</button>
@@ -276,8 +276,10 @@ const parseRepo = v => { const m = v.trim().replace(/\.git$/, "").match(/(?:gith
 const progressKind = () => sync.lock ? "session" : "local";
 const writeLocal = (id, body) => { try { store(progressKind()).setItem(LS + id, JSON.stringify(body)); } catch (e) {} };
 const timers = {};
-// "login": locked device, password needed. "lock": token saved before passwords existed.
-const gate = () => sync.lock && !sync.token ? "login" : sync.legacy && !sync.lock ? "lock" : null;
+// A connected device that isn't logged in shows the empty workbook with a Log in button.
+const loggedOut = () => !!sync.lock && !sync.token;
+// "lock": a token saved before passwords existed must be locked before anything else.
+const gate = () => sync.legacy && !sync.lock ? "lock" : null;
 
 function loadProgress(kind) {
   try {
@@ -303,8 +305,9 @@ function resetState() { state.meta = { startDate: TODAY, hangul: {} }; state.day
 
 function setStatus() {
   const el = document.getElementById("status"), btn = document.getElementById("saveBtn"), g = gate();
-  btn.hidden = !!g;
+  btn.hidden = !!g || loggedOut();
   document.getElementById("logoutBtn").hidden = !!g || !sync.token;
+  document.getElementById("loginBtn").hidden = !loggedOut() || state.view === "login";
   btn.disabled = !state.loaded || sync.busy;
   btn.textContent = sync.busy && !g ? "Saving…" : "Save progress";
   el.className = "status";
@@ -439,7 +442,7 @@ async function login(password, repo) {
   try { token = await unlockToken(sync.lock, password); }
   catch (e) { sync.busy = false; sync.error = "Wrong password"; return render(); }
   sync.token = token; sSet("session", "token", token);
-  resetState(); loadProgress("session");
+  clearProgress("session"); resetState();
   try { mergeIn(await pull()); } catch (e) { sync.error = errText(e); }
   sync.busy = false;
   go("day");
@@ -607,6 +610,7 @@ function renderGate(g) {
 }
 
 function renderSync() {
+  if (loggedOut()) return renderGate("login");
   const err = sync.error ? `<p class="err">${esc(sync.error)}</p>` : "";
   if (sync.token) return `<div class="stack">
     <div class="sectionhead"><h2>Sync with GitHub</h2></div>
@@ -655,7 +659,7 @@ function render() {
   document.querySelectorAll("#tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.view === state.view));
   const g = gate();
   document.getElementById("tabs").hidden = !!g;
-  const html = g ? renderGate(g) : { day: renderDay, year: renderYear, hangul: renderHangul, words: renderWords, sync: renderSync }[state.view]();
+  const html = g ? renderGate(g) : { day: renderDay, year: renderYear, hangul: renderHangul, words: renderWords, sync: renderSync, login: () => renderGate("login") }[state.view]();
   main.innerHTML = `<fieldset id="fs"${state.loaded ? "" : " disabled"}>${html}</fieldset>`;
   setStatus();
 }
@@ -677,6 +681,7 @@ document.addEventListener("click", e => {
   if (e.target.closest("#syncPull")) return reload();
   if (e.target.closest("#logoutBtn, #syncOff")) return logout(false);
   if (e.target.closest("#forgetBtn")) return logout(true);
+  if (e.target.closest("#loginBtn")) return go("login");
   const l = e.target.closest("[data-letter]");
   if (l && state.loaded) {
     const on = !state.meta.hangul[l.dataset.letter];
@@ -735,7 +740,7 @@ main.addEventListener("change", e => {
 
 /* ---------- boot ---------- */
 async function boot() {
-  if (gate() !== "login") loadProgress(progressKind());
+  if (!loggedOut()) loadProgress(progressKind());
   if (sync.token) { try { mergeIn(await pull()); } catch (e) { sync.error = errText(e); } }
   state.loaded = true;
   render();
