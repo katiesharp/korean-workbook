@@ -374,6 +374,22 @@ async function pull() {
   if (!r.ok) throw ghError(r);
   return r.json();
 }
+// Devices connected before the repository was remembered: find it from the token.
+// Prefer a private repo named korean-workbook-data, else the only private repo it can write to.
+async function discoverRepo() {
+  const headers = { Authorization: "Bearer " + sync.token, "X-GitHub-Api-Version": "2022-11-28" };
+  try {
+    const r = await fetch("https://api.github.com/user/repos?per_page=100&sort=updated", { cache: "no-store", headers });
+    if (r.ok) {
+      const mine = (await r.json()).filter(x => x.private && x.permissions?.push);
+      const pick = mine.find(x => x.name === "korean-workbook-data") || (mine.length === 1 ? mine[0] : null);
+      if (pick) return pick.full_name;
+    }
+    const u = await fetch("https://api.github.com/user", { cache: "no-store", headers });
+    if (u.ok) return (await u.json()).login + "/korean-workbook-data";
+  } catch (e) {}
+  return null;
+}
 async function remoteSha() {
   const r = await gh("/contents/");
   if (r.status === 404) return undefined; // a repo with no files yet
@@ -413,7 +429,8 @@ async function saveToGitHub() {
 async function setup(token, password, repo) {
   sync.busy = true; sync.error = ""; render();
   try {
-    sync.token = token; sync.repo = repo;
+    sync.token = token; sync.repo = repo || await discoverRepo();
+    if (!sync.repo) throw new Error("Couldn't find your progress repository");
     const r = await gh("");
     if (!r.ok) throw ghError(r);
     const lock = await lockToken(token, password);
@@ -435,13 +452,13 @@ async function setup(token, password, repo) {
   if (sync.dirty && !sync.error) return saveToGitHub();
   render();
 }
-async function login(password, repo) {
-  if (repo) { sync.repo = repo; sSet("local", "repo", repo); }
+async function login(password) {
   sync.busy = true; sync.error = ""; render();
   let token;
   try { token = await unlockToken(sync.lock, password); }
   catch (e) { sync.busy = false; sync.error = "Wrong password"; return render(); }
   sync.token = token; sSet("session", "token", token);
+  if (!sync.repo) { sync.repo = await discoverRepo(); if (sync.repo) sSet("local", "repo", sync.repo); }
   clearProgress("session"); resetState();
   try { mergeIn(await pull()); } catch (e) { sync.error = errText(e); }
   sync.busy = false;
@@ -590,7 +607,6 @@ function loginHTML(page) {
     ${page ? "<h1>Log in</h1>" : `<div class="sectionhead"><h2>Log in</h2></div>`}
     <p class="muted" style="margin:0">Enter your password to open your workbook on this device.</p>
     <form class="stack" id="loginForm" style="gap:10px">
-      ${sync.repo ? "" : `<label for="loginRepo" class="eyebrow">Progress repository</label><input type="text" id="loginRepo" placeholder="your-username/korean-workbook-data" autocomplete="off">`}
       <label for="loginPw" class="eyebrow">Password</label>
       <input type="password" id="loginPw" autocomplete="current-password"${page ? " autofocus" : ""}>
       ${errFor("loginForm")}
@@ -607,7 +623,6 @@ function renderGate(g) {
     <h1>Set a password</h1>
     <p class="muted" style="margin:0">This device has your GitHub token saved without a password. Choose one to lock it. You'll enter it each time you open the workbook here.</p>
     <form class="stack" id="lockForm" style="gap:10px">
-      ${sync.repo ? "" : `<label for="repo" class="eyebrow">Progress repository</label><input type="text" id="repo" placeholder="your-username/korean-workbook-data" autocomplete="off" value="${esc(sync.repo || "")}">`}
       <label for="pw" class="eyebrow">New password</label><input type="password" id="pw" autocomplete="new-password">
       <label for="pw2" class="eyebrow">Repeat password</label><input type="password" id="pw2" autocomplete="new-password">
       ${err}
@@ -722,10 +737,9 @@ main.addEventListener("submit", e => {
   const form = e.target, val = id => form.elements[id]?.value || "";
   const fail = msg => { sync.error = msg; render(); };
   sync.errorAt = form.id;
-  const repoId = form.id === "loginForm" ? "loginRepo" : "repo";
-  const hasRepo = !!form.elements[repoId], repo = hasRepo ? parseRepo(val(repoId)) : sync.repo;
+  const hasRepo = !!form.elements.repo, repo = hasRepo ? parseRepo(val("repo")) : sync.repo;
   if (hasRepo && !repo) return fail("Enter the repository as your-username/repository-name");
-  if (form.id === "loginForm") return val("loginPw") ? login(val("loginPw"), repo) : fail("Enter your password");
+  if (form.id === "loginForm") return val("loginPw") ? login(val("loginPw")) : fail("Enter your password");
   if (form.id === "connectForm" && !val("token").trim()) return fail("Paste your GitHub token");
   if (val("pw").length < 8) return fail("Use a password of at least 8 characters");
   if (val("pw") !== val("pw2")) return fail("The passwords don't match");
