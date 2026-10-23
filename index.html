@@ -504,7 +504,7 @@ function renderSync() {
       <li>Open <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub → New fine-grained token</a>.</li>
       <li>Name it <b>Korean workbook</b> and pick the longest expiration offered.</li>
       <li>Under <b>Repository access</b>, choose <b>Only select repositories</b> and pick the repository that stores your progress.</li>
-      <li>Under <b>Permissions → Repository permissions</b>, set <b>Contents</b> to <b>Read and write</b>.</li>
+      <li>Under <b>Permissions</b>, open the <b>Add permissions</b> dropdown, search for <b>Contents</b> and add it. Then change its access from <b>Read-only</b> to <b>Read and write</b>.</li>
       <li>Click <b>Generate token</b>, copy it, and paste it below.</li>
     </ol>
     ${sync.error ? `<p class="err">${esc(sync.error)}</p>` : ""}
